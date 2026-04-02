@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Server Test Client</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #fdfdfd;
+            color: #333;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        h1,
+        h2 {
+            color: #2c3e50;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+
+        video {
+            width: 100%;
+            border-radius: 8px;
+            background: black;
+            display: none;
+            aspect-ratio: 16/9;
+        }
+
+        #logs {
+            max-height: 150px;
+            overflow-y: auto;
+            background: #eee;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Moodle Video Server - End-to-End Test</h1>
+
+    <!-- LOGIN -->
+    <div class="card">
+        <h2>1. Authentication</h2>
+        <div>
+            <label>Email:</label>
+            <input type="text" id="email" value="admin@company.com">
+            <label>Password:</label>
+            <input type="password" id="password" value="password">
+            <button id="loginBtn">Login to get Token</button>
+        </div>
+        <div id="authStatus" class="status"></div>
+    </div>
+
+    <!-- UPLOAD -->
+    <div class="card" id="uploadCard" style="opacity: 0.5; pointer-events: none;">
+        <h2>2. Upload Video</h2>
+        <div>
+            <label>Select Video File (.mp4, .mov, .mkv):</label>
+            <input type="file" id="videoFile" accept="video/mp4,video/quicktime,video/x-matroska">
+
+            <label>Video Title:</label>
+            <input type="text" id="videoTitle" value="My Test Video">
+
+            <button id="uploadBtn">Upload to MinIO</button>
+        </div>
+        <div id="uploadStatus" class="status"></div>
+    </div>
+
+    <!-- PLAYBACK -->
+    <div class="card" id="playerCard" style="display: none;">
+        <h2>3. Video Playback (HLS stream)</h2>
+        <div id="pollingStatus" class="status info" style="display: block;">Waiting for FFmpeg Transcoding...</div>
+
+        <video id="videoPlayer" controls></video>
+
+        <div style="margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 10px;">
+            <label id="qualityLabel" style="display:none; font-weight: bold;">Quality:</label>
+            <select id="qualitySelector"
+                style="display:none; padding: 5px; border-radius: 4px; border: 1px solid #ccc;"></select>
+        </div>
+
+        <div style="margin-top:15px; text-align:center;">
+            <a id="playUrlLink" href="#" target="_blank" style="color: #3498db; text-decoration: none;">View direct
+                .m3u8 URL</a>
+        </div>
+    </div>
+
+    <!-- LIBRARY -->
+    <div class="card" id="libraryCard" style="opacity: 0.5; pointer-events: none;">
+        <h2>4. Video Library</h2>
+        <button id="loadVideosBtn">Load All Videos</button>
+        <div id="videoList" style="margin-top: 15px; display: grid; gap: 10px;"></div>
+    </div>
+
+    <div class="card">
+        <h3>Console Logs</h3>
+        <div id="logs"></div>
+    </div>
+
+    <script>
+        let jwtToken = null;
+        let pollingInterval = null;
+
+        let API_BASE = window.location.hostname ? `http://${window.location.hostname}` : 'http://localhost';
+
+        function log(msg) {
+            const logs = document.getElementById('logs');
+            logs.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function showStatus(elementId, message, type) {
+            const el = document.getElementById(elementId);
+            el.className = `status ${type}`;
+            el.innerHTML = message;
+            el.style.display = 'block';
+        }
+
+        // 1. LOGIN
+        document.getElementById('loginBtn').addEventListener('click', async () => {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            log(`Authenticating as ${email}...`);
+            try {
+                const res = await fetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    jwtToken = data.token;
+                    showStatus('authStatus', `✅ Success! Token acquired. Role: ${data.role}`, 'success');
+                    log(`Token received: ${jwtToken.substring(0, 20)}...`);
+
+                    // Enable Upload and Library sections
+                    document.getElementById('uploadCard').style.opacity = '1';
+                    document.getElementById('uploadCard').style.pointerEvents = 'auto';
+                    document.getElementById('libraryCard').style.opacity = '1';
+                    document.getElementById('libraryCard').style.pointerEvents = 'auto';
+                } else {
+                    showStatus('authStatus', `❌ Failed: ${data.error}`, 'error');
+                }
+            } catch (err) {
+                showStatus('authStatus', `❌ Error: ${err.message}`, 'error');
+            }
+        });
+
+        // 2. UPLOAD
+        document.getElementById('uploadBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('videoFile');
+            const titleInput = document.getElementById('videoTitle');
+
+            if (!fileInput.files[0]) {
+                alert('Please select a file first!');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('title', titleInput.value);
+            formData.append('access_level', 'org');
+            formData.append('file', fileInput.files[0]);
+
+            const btn = document.getElementById('uploadBtn');
+            btn.innerText = 'Uploading...';
+            btn.disabled = true;
+            showStatus('uploadStatus', 'Uploading directly to MinIO...', 'info');
+            log(`Starting upload for file: ${fileInput.files[0].name}`);
+
+            try {
+                const res = await fetch(`${API_BASE}/api/videos/upload`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${jwtToken}` },
+                    body: formData
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    showStatus('uploadStatus', `✅ Uploaded! Video ID: ${data.video_id}`, 'success');
+                    log(`Upload finished. Job pushed to worker.`);
+
+                    // Start Polling Process
+                    document.getElementById('playerCard').style.display = 'block';
+                    document.getElementById('videoPlayer').style.display = 'none';
+                    pollStatus(data.video_id);
+                } else {
+                    showStatus('uploadStatus', `❌ Failed: ${data.error || 'Unknown'}`, 'error');
+                }
+            } catch (err) {
+                showStatus('uploadStatus', `❌ Network Error: ${err.message}`, 'error');
+            } finally {
+                btn.innerText = 'Upload to MinIO';
+                btn.disabled = false;
+            }
+        });
+
+        // 3. POLL FOR STATUS
+        async function pollStatus(videoId) {
+            log(`Started polling status for video ${videoId}...`);
+            if (pollingInterval) clearInterval(pollingInterval);
+
+            pollingInterval = setInterval(async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/api/videos/${videoId}/status`, {
+                        headers: { 'Authorization': `Bearer ${jwtToken}` }
+                    });
+                    const data = await res.json();
+
+                    log(`Polled status: ${data.status}`);
+                    document.getElementById('pollingStatus').innerText = `Current Status: ${data.status.toUpperCase()} (waiting for worker)`;
+
+                    if (data.status === 'ready') {
+                        clearInterval(pollingInterval);
+                        document.getElementById('pollingStatus').style.display = 'none';
+                        log('Transcoding COMPLETE. Loading player...');
+
+                        // Because we proxy HLS through Nginx with Public MinIO Bucket, URL is predictable:
+                        const playUrl = `${API_BASE}/hls/${videoId}/master.m3u8`;
+                        document.getElementById('playUrlLink').href = playUrl;
+                        document.getElementById('playUrlLink').innerText = playUrl;
+
+                        setupPlayer(playUrl);
+                    } else if (data.status === 'error') {
+                        clearInterval(pollingInterval);
+                        showStatus('pollingStatus', '❌ Transcoding failed!', 'error');
+                    }
+                } catch (err) {
+                    console.error('Polling error', err);
+                }
+            }, 3000); // Check every 3 seconds
+        }
+
+        // 4. SETUP HLS STREAM
+        function setupPlayer(playUrl) {
+            const video = document.getElementById('videoPlayer');
+            video.style.display = 'block';
+
+            if (Hls.isSupported()) {
+                const hls = new Hls({ debug: false });
+                hls.loadSource(playUrl);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
+                    video.play();
+
+                    // Setup Quality Selector
+                    const qualitySelector = document.getElementById('qualitySelector');
+                    const qualityLabel = document.getElementById('qualityLabel');
+
+                    // Clear existing
+                    qualitySelector.innerHTML = '<option value="-1">Auto (Adaptive)</option>';
+
+                    // Populate from HLS manifest levels (360p, 720p, 1080p)
+                    data.levels.forEach((level, index) => {
+                        const option = document.createElement('option');
+                        option.value = index;
+                        option.text = `${level.height}p`;
+                        qualitySelector.appendChild(option);
+                    });
+
+                    qualitySelector.style.display = 'block';
+                    qualityLabel.style.display = 'block';
+
+                    // Listen to dropdown changes
+                    qualitySelector.addEventListener('change', (e) => {
+                        hls.currentLevel = parseInt(e.target.value); // -1 is auto, 0, 1, 2 are specific indexes
+                        log(`Switched quality to: ${e.target.options[e.target.selectedIndex].text}`);
+                    });
+                });
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) log("HLS Fatal error: " + data.type);
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native Safari support
+                video.src = playUrl;
+                video.addEventListener('loadedmetadata', function () {
+                    video.play();
+                });
+            } else {
+                log('HLS is not supported in this browser.');
+            }
+        }
+        // 5. LOAD VIDEO LIBRARY
+        document.getElementById('loadVideosBtn').addEventListener('click', async () => {
+            log('Fetching video library...');
+            const listContainer = document.getElementById('videoList');
+            listContainer.innerHTML = '<i>Loading...</i>';
+            try {
+                const res = await fetch(`${API_BASE}/api/videos`, {
+                    headers: { 'Authorization': `Bearer ${jwtToken}` }
+                });
+                const responseData = await res.json();
+                if (res.ok) {
+                    listContainer.innerHTML = '';
+                    if (responseData.data.length === 0) {
+                        listContainer.innerHTML = '<p>No videos found.</p>';
+                        return;
+                    }
+                    responseData.data.forEach(v => {
+                        const item = document.createElement('div');
+                        item.style.border = '1px solid #ddd';
+                        item.style.padding = '10px';
+                        item.style.borderRadius = '5px';
+                        item.style.display = 'flex';
+                        item.style.justifyContent = 'space-between';
+
+                        const text = document.createElement('span');
+                        text.innerHTML = `<strong>${v.title}</strong> (Course: ${v.course_id}) - <span style="color:${v.status === 'ready' ? 'green' : 'orange'}">[${v.status}]</span>`;
+
+                        const playBtn = document.createElement('button');
+                        playBtn.innerText = 'Play';
+                        playBtn.style.padding = '5px 10px';
+                        if (v.status !== 'ready') playBtn.disabled = true;
+                        playBtn.onclick = () => {
+                            document.getElementById('playerCard').style.display = 'block';
+                            const playUrl = `${API_BASE}/hls/${v.id}/master.m3u8`;
+                            document.getElementById('playUrlLink').href = playUrl;
+                            document.getElementById('playUrlLink').innerText = playUrl;
+                            setupPlayer(playUrl);
+                            window.scrollTo({ top: document.getElementById('playerCard').offsetTop, behavior: 'smooth' });
+                        };
+
+                        item.appendChild(text);
+                        item.appendChild(playBtn);
+                        listContainer.appendChild(item);
+                    });
+                    log(`Loaded ${responseData.data.length} videos.`);
+                } else {
+                    listContainer.innerHTML = `<p style="color:red">Failed to load: ${responseData.error}</p>`;
+                }
+            } catch (err) {
+                listContainer.innerHTML = `<p style="color:red">Error: ${err.message}</p>`;
+            }
+        });
+
+    </script>
+</body>
+
+</html>

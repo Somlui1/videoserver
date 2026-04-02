@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required) - The user's unique ID
+    //   - email: string (required) - The user's email address
+    //   - role: string (required, enum: ['admin', 'user']) - The user's role
+    //   - displayName: string (optional) - The user's display name
+    //
+    // Collection: videos
+    // Document ID: {videoId}
+    // Fields:
+    //   - id: string (required) - The video's unique ID
+    //   - title: string (required) - The video's title
+    //   - description: string (optional) - The video's description
+    //   - status: string (required, enum: ['queued', 'processing', 'ready', 'failed']) - The video's status
+    //   - quality: string (optional) - The video's quality
+    //   - duration: string (optional) - The video's duration
+    //   - size: string (optional) - The video's size
+    //   - createdAt: string (required, format: date-time) - The video's creation date
+    //   - views: number (optional) - The number of views
+    //   - thumbnailUrl: string (optional) - The video's thumbnail URL
+    //   - authorUid: string (required) - The user's unique ID who uploaded the video
+    //
+    // Collection: system/stats
+    // Document ID: stats
+    // Fields:
+    //   - jobsWaiting: number (required) - The number of jobs waiting
+    //   - activeWorkers: number (required) - The number of active workers
+    //   - storageUsed: string (required) - The amount of storage used
+    //   - storagePercentage: number (required) - The percentage of storage used
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "makmakzaaa@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string &&
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // User Rules
+    match /users/{uid} {
+      function isValidUser(data) {
+        return hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName']) &&
+               data.uid is string && data.uid.size() > 0 &&
+               data.email is string && isValidEmail(data.email) &&
+               data.role in ['admin', 'user'] &&
+               (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100));
+      }
+
+      allow read: if isOwner(uid) || isAdmin();
+      
+      allow create: if isAuthenticated() && 
+                      isValidUser(request.resource.data) && 
+                      isOwner(uid) && 
+                      (request.resource.data.role == 'user' || isAdmin());
+      
+      allow update: if isAuthenticated() && 
+                      isValidUser(request.resource.data) && 
+                      ((isOwner(uid) && request.resource.data.role == resource.data.role) || isAdmin());
+    }
+
+    // Video Rules
+    match /videos/{videoId} {
+      function isValidVideo(data) {
+        return hasOnlyAllowedFields(['id', 'title', 'description', 'status', 'quality', 'duration', 'size', 'createdAt', 'views', 'thumbnailUrl', 'authorUid']) &&
+               data.id is string && data.id.size() > 0 &&
+               data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+               (!('description' in data) || (data.description is string && data.description.size() < 2000)) &&
+               data.status in ['queued', 'processing', 'ready', 'failed'] &&
+               (!('quality' in data) || (data.quality is string)) &&
+               (!('duration' in data) || (data.duration is string)) &&
+               (!('size' in data) || (data.size is string)) &&
+               isValidDateString(data.createdAt) &&
+               (!('views' in data) || (data.views is number)) &&
+               (!('thumbnailUrl' in data) || (data.thumbnailUrl is string)) &&
+               data.authorUid is string && data.authorUid.size() > 0;
+      }
+
+      allow read: if isAuthenticated();
+      
+      allow create: if isAuthenticated() && 
+                      isValidVideo(request.resource.data) && 
+                      request.resource.data.authorUid == request.auth.uid;
+      
+      allow update: if isAuthenticated() && 
+                      isValidVideo(request.resource.data) && 
+                      (isOwner(resource.data.authorUid) || isAdmin()) &&
+                      request.resource.data.authorUid == resource.data.authorUid;
+      
+      allow delete: if isAuthenticated() && (isOwner(resource.data.authorUid) || isAdmin());
+    }
+
+    // System Stats Rules
+    match /system/stats {
+      function isValidStats(data) {
+        return hasOnlyAllowedFields(['jobsWaiting', 'activeWorkers', 'storageUsed', 'storagePercentage']) &&
+               data.jobsWaiting is number &&
+               data.activeWorkers is number &&
+               data.storageUsed is string &&
+               data.storagePercentage is number;
+      }
+
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

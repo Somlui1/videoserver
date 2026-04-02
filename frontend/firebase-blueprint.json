@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "Video": {
+      "title": "Video",
+      "description": "Metadata for a video asset.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["queued", "processing", "ready", "failed"] },
+        "quality": { "type": "string" },
+        "duration": { "type": "string" },
+        "size": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "views": { "type": "integer" },
+        "thumbnailUrl": { "type": "string" },
+        "authorUid": { "type": "string" }
+      },
+      "required": ["id", "title", "status", "createdAt", "authorUid"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile and permissions.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "displayName": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "SystemStats": {
+      "title": "SystemStats",
+      "description": "Global system statistics.",
+      "type": "object",
+      "properties": {
+        "jobsWaiting": { "type": "integer" },
+        "activeWorkers": { "type": "integer" },
+        "storageUsed": { "type": "string" },
+        "storagePercentage": { "type": "number" }
+      },
+      "required": ["jobsWaiting", "activeWorkers", "storageUsed", "storagePercentage"]
+    }
+  },
+  "firestore": {
+    "/videos/{videoId}": {
+      "schema": "Video",
+      "description": "Collection of all video assets."
+    },
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles."
+    },
+    "/system/stats": {
+      "schema": "SystemStats",
+      "description": "Global system statistics."
+    }
+  }
+}

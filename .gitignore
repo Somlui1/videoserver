@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Environment (contains secrets)
+.env
+.env.prod
+
+# SSL certificates (NEVER commit these)
+nginx/ssl/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Docker volumes (if mounted locally)
+pgdata/
+miniodata/

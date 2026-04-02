@@ -1,0 +1,40 @@
+# ============================================================
+# Production Dockerfile — Multi-stage build
+# ============================================================
+
+# ── Stage 1: Install dependencies ────────────────────────────
+FROM node:20-alpine AS deps
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# ── Stage 2: Production image ────────────────────────────────
+FROM node:20-alpine
+
+# Install ffmpeg (required for transcoding worker)
+RUN apk add --no-cache ffmpeg tini
+
+# Run as non-root user for security
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -S appuser -u 1001 -G appgroup
+
+WORKDIR /app
+
+# Copy only production dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY package*.json ./
+COPY src/ ./src/
+
+# Set proper ownership
+RUN chown -R appuser:appgroup /app
+
+USER appuser
+
+ENV NODE_ENV=production
+
+EXPOSE 3000
+
+# Use tini as init system for proper signal handling
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "src/app.js"]

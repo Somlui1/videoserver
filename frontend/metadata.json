@@ -1,0 +1,5 @@
+{
+  "name": "AAPICO Video Portal",
+  "description": "Enterprise-grade video management and HLS transcoding platform for AAPICO Moodle integration.",
+  "requestFramePermissions": []
+}
