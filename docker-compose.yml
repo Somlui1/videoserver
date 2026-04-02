@@ -67,8 +67,6 @@ services:
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=pass
       - POSTGRES_DB=videodb
-    ports:
-      - []
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Mount schema.sql to run on first init
