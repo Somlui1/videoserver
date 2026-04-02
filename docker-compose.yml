@@ -123,8 +123,8 @@ services:
     image: nginx:alpine
     container_name: video-server-nginx
     ports:
-      - "80:80"
-      - "443:443"
+      - "551:80"
+      - "552:443"
     volumes:
       - ./nginx/video.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
