@@ -1,6 +1,7 @@
 const pool = require('../db/pool');
 const { minioClient, HLS_BUCKET, THUMB_BUCKET } = require('../services/minio');
 const { verifyJWT, requireRole } = require('../middleware/auth');
+const { redis } = require('../services/redis');
 
 module.exports = async function (fastify, opts) {
   // Get video metadata + presigned URL
@@ -19,14 +20,11 @@ module.exports = async function (fastify, opts) {
 
       let streams = null;
       if (video.status === 'ready') {
-        // Since the MinIO bucket is public and proxied via Nginx's /hls/,
-        // we return clean, public-facing relative paths that the frontend can use directly.
+        // Updated to single original resolution subdirectory
         streams = {
           master: `/hls/${id}/master.m3u8`,
-          '1080p': `/hls/${id}/1080p/index.m3u8`,
-          '720p': `/hls/${id}/720p/index.m3u8`,
-          '360p': `/hls/${id}/360p/index.m3u8`,
-          thumbnail: `/thumbnails/${id}.jpg` // Optional if Nginx proxies /thumbnails/
+          'Original': `/hls/${id}/original/index.m3u8`,
+          thumbnail: `/thumbnails/${id}.jpg`
         };
       }
 
@@ -37,13 +35,61 @@ module.exports = async function (fastify, opts) {
     }
   });
 
+  // SSE Progress Endpoint
+  fastify.get('/:id/progress', { preHandler: [verifyJWT] }, async (request, reply) => {
+    const { id } = request.params;
+
+    // Set SSE headers manually
+    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.flushHeaders();
+
+    // 1. Push current state immediately
+    try {
+      const { rows } = await pool.query('SELECT progress, status FROM videos WHERE id = $1', [id]);
+      if (rows[0]) {
+        reply.raw.write(`data: ${JSON.stringify(rows[0])}\n\n`);
+        if (rows[0].status === 'ready' || rows[0].status === 'error') {
+          return reply.raw.end();
+        }
+      }
+    } catch (err) {
+      fastify.log.error('SSE initial state fetch error:', err);
+    }
+
+    // 2. Subscribe to Redis for real-time updates
+    const sub = redis.duplicate();
+    await sub.subscribe(`progress:${id}`);
+
+    const cleanup = () => {
+      sub.unsubscribe(`progress:${id}`).catch(() => {});
+      sub.disconnect(); // Use disconnect or quit
+      reply.raw.end();
+    };
+
+    sub.on('message', (channel, message) => {
+      reply.raw.write(`data: ${message}\n\n`);
+      const data = JSON.parse(message);
+      if (data.status === 'ready' || data.status === 'error') {
+        cleanup();
+      }
+    });
+
+    // Handle client disconnect
+    request.raw.on('close', cleanup);
+
+    // Keep the request open
+  });
+
   // List videos
   fastify.get('/', { preHandler: [verifyJWT] }, async (request, reply) => {
     const { page = 1, limit = 10, search, course_id } = request.query;
     const offset = (page - 1) * limit;
 
     try {
-      let query = 'SELECT id, title, course_id, access_level, status, duration_seconds, created_at FROM videos WHERE 1=1';
+      // Include progress in list
+      let query = 'SELECT id, title, course_id, access_level, status, duration_seconds, progress, created_at FROM videos WHERE 1=1';
       const params = [];
       let paramCount = 1;
 
@@ -75,13 +121,13 @@ module.exports = async function (fastify, opts) {
     }
   });
 
-  // Polling endpoint
+  // Polling endpoint (Legacy support, now includes progress)
   fastify.get('/:id/status', { preHandler: [verifyJWT] }, async (request, reply) => {
     const { id } = request.params;
     try {
-      const { rows } = await pool.query('SELECT status FROM videos WHERE id = $1', [id]);
+      const { rows } = await pool.query('SELECT status, progress FROM videos WHERE id = $1', [id]);
       if (rows.length === 0) return reply.code(404).send({ error: 'Video not found' });
-      return reply.send({ status: rows[0].status });
+      return reply.send(rows[0]);
     } catch (err) {
       fastify.log.error(err);
       return reply.code(500).send({ error: 'Internal server error' });

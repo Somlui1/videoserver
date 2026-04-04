@@ -1,5 +1,9 @@
 const verifyJWT = async (request, reply) => {
   try {
+    // Support token from query param for SSE (EventSource doesn't support headers)
+    if (request.query && request.query.token) {
+      request.headers.authorization = `Bearer ${request.query.token}`;
+    }
     await request.jwtVerify();
   } catch (err) {
     reply.code(401).send({ error: 'Unauthorized', message: 'Invalid or missing token' });
@@ -13,10 +17,10 @@ const requireRole = (allowedRoles) => {
       const userRole = request.user.role;
       if (userRole === 'admin') return; // Admin bypasses role restrictions
       if (!allowedRoles.includes(userRole)) {
-        reply.code(403).send({ error: 'Forbidden', message: 'Insufficient permissions' });
+        return reply.code(403).send({ error: 'Forbidden', message: 'Insufficient permissions' });
       }
     } catch (err) {
-      reply.code(401).send({ error: 'Unauthorized', message: 'Invalid or missing token' });
+      return reply.code(401).send({ error: 'Unauthorized', message: 'Invalid or missing token' });
     }
   };
 };

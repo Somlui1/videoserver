@@ -36,14 +36,17 @@ CREATE TABLE IF NOT EXISTS videos (
     uploader_id UUID REFERENCES users(id),
     duration_seconds INTEGER,
     file_size_bytes BIGINT,
+    progress INTEGER DEFAULT 0,
+    failed_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Seed default admin user (password: 'password')
+-- Seed default admin user with a STATIC UUID to prevent FK issues on local resets
 INSERT INTO users (id, email, password_hash, role)
 VALUES (
-    uuid_generate_v4(),
+    '00000000-0000-0000-0000-000000000001',
     'admin@company.com',
     '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
     'admin'

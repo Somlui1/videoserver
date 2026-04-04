@@ -1,4 +1,6 @@
 const Minio = require('minio');
+const fs = require('fs/promises');
+const path = require('path');
 
 const minioClient = new Minio.Client({
   endPoint: process.env.MINIO_ENDPOINT || 'localhost',
@@ -11,6 +13,43 @@ const minioClient = new Minio.Client({
 const RAW_BUCKET = process.env.MINIO_BUCKET_RAW || 'raw-videos';
 const HLS_BUCKET = process.env.MINIO_BUCKET_HLS || 'hls-videos';
 const THUMB_BUCKET = process.env.MINIO_BUCKET_THUMBS || 'thumbnails';
+
+/**
+ * Recursively upload a directory to MinIO.
+ */
+const uploadDir = async (bucket, prefix, dirPath) => {
+  const uploadRecursive = async (currentPath, bucketPrefix) => {
+    const entries = await fs.readdir(currentPath, { withFileTypes: true });
+    for (let entry of entries) {
+      const fullPath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        await uploadRecursive(fullPath, `${bucketPrefix}/${entry.name}`);
+      } else {
+        const fileExt = path.extname(entry.name);
+        const metaData = {};
+        if (fileExt === '.m3u8') metaData['Content-Type'] = 'application/vnd.apple.mpegurl';
+        else if (fileExt === '.ts') metaData['Content-Type'] = 'video/MP2T';
+        
+        await minioClient.fPutObject(bucket, `${bucketPrefix}/${entry.name}`, fullPath, metaData);
+      }
+    }
+  };
+  await uploadRecursive(dirPath, prefix);
+};
+
+/**
+ * Delete all objects with a given prefix in a bucket.
+ */
+const deletePrefix = async (bucket, prefix) => {
+  const objectsStream = minioClient.listObjectsV2(bucket, prefix, true);
+  const objectsToRemove = [];
+  for await (const obj of objectsStream) {
+    objectsToRemove.push(obj.name);
+  }
+  if (objectsToRemove.length > 0) {
+    await minioClient.removeObjects(bucket, objectsToRemove);
+  }
+};
 
 // Init buckets
 const initBuckets = async () => {
@@ -48,12 +87,13 @@ const initBuckets = async () => {
   }
 };
 
-// Will be called when importing (suitable for long-running app/worker)
 initBuckets();
 
 module.exports = {
   minioClient,
   RAW_BUCKET,
   HLS_BUCKET,
-  THUMB_BUCKET
+  THUMB_BUCKET,
+  uploadDir,
+  deletePrefix
 };

@@ -82,8 +82,19 @@ const closeGracefully = async (signal) => {
 process.on('SIGINT', closeGracefully);
 process.on('SIGTERM', closeGracefully);
 
+const ensureSchema = async () => {
+  try {
+    await pool.query('ALTER TABLE videos ADD COLUMN IF NOT EXISTS progress INTEGER DEFAULT 0');
+    await pool.query('ALTER TABLE videos ADD COLUMN IF NOT EXISTS failed_at TIMESTAMP NULL');
+    app.log.info('Schema migration successful or already up-to-date');
+  } catch (err) {
+    app.log.error(err, 'Schema migration failed');
+  }
+};
+
 const start = async () => {
   try {
+    await ensureSchema();
     await app.listen({ port: process.env.PORT || 3000, host: '0.0.0.0' });
     app.log.info('Server started successfully');
   } catch (err) {

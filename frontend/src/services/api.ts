@@ -56,8 +56,16 @@ export const VideoService = {
   /**
    * Fetch all videos from the Fastify Backend
    */
-  async getVideos() {
-    const response = await fetch(`${API_CONFIG.BASE_URL}/api/videos`, {
+  async getVideos(params?: { search?: string; page?: number; limit?: number }) {
+    const queryParams = new URLSearchParams();
+    if (params?.search) queryParams.set('search', params.search);
+    if (params?.page) queryParams.set('page', params.page.toString());
+    if (params?.limit) queryParams.set('limit', params.limit.toString());
+
+    const queryString = queryParams.toString();
+    const url = `${API_CONFIG.BASE_URL}/api/videos${queryString ? `?${queryString}` : ''}`;
+
+    const response = await fetch(url, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -171,6 +179,38 @@ export const VideoService = {
       storageUsed: "N/A",
       storagePercentage: 0
     };
+  },
+
+  /**
+   * Get admin videos (from admin route for full details)
+   */
+  async getAdminVideos() {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/api/admin/videos`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to fetch admin videos');
+    }
+    
+    return data.data;
+  },
+
+  /**
+   * Get system health status
+   */
+  async getHealth() {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/api/health`, {
+        method: 'GET',
+      });
+      const data = await response.json();
+      return data;
+    } catch {
+      return { status: 'error', db: 'error', timestamp: new Date().toISOString() };
+    }
   },
 
   /**
