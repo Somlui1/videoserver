@@ -1,13 +1,7 @@
-const { Queue } = require('bullmq');
+const { transcodeQueue } = require('../services/queues');
 const pool = require('../db/pool');
 const { verifyJWT, requireRole } = require('../middleware/auth');
-
-const transcodeQueue = new Queue('transcode', {
-  connection: {
-    host: process.env.REDIS_URL ? new URL(process.env.REDIS_URL).hostname : 'localhost',
-    port: process.env.REDIS_URL ? new URL(process.env.REDIS_URL).port : 6379,
-  }
-});
+const { getTotalStorageUsage } = require('../services/minio');
 
 module.exports = async function (fastify, opts) {
   fastify.get('/videos', { preHandler: [verifyJWT, requireRole(['admin'])] }, async (request, reply) => {
@@ -27,8 +21,18 @@ module.exports = async function (fastify, opts) {
       const completed = await transcodeQueue.getCompletedCount();
       const failed = await transcodeQueue.getFailedCount();
       
+      const storage = await getTotalStorageUsage();
+      const capacityGB = parseInt(process.env.STORAGE_CAPACITY_GB || '100');
+      const usedGB = storage.bytes / (1024 * 1024 * 1024);
+      const percentage = Math.min(100, Math.round((usedGB / capacityGB) * 100));
+
       return reply.send({
-        waiting, active, completed, failed
+        waiting, 
+        active, 
+        completed, 
+        failed,
+        storageUsed: storage.formatted,
+        storagePercentage: percentage
       });
     } catch (err) {
       fastify.log.error(err);

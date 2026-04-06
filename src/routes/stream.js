@@ -1,5 +1,6 @@
 const pool = require('../db/pool');
 const { minioClient, HLS_BUCKET, THUMB_BUCKET } = require('../services/minio');
+const { transcodeQueue, cleanupQueue } = require('../services/queues');
 const { verifyJWT, requireRole } = require('../middleware/auth');
 const { redis } = require('../services/redis');
 
@@ -146,23 +147,19 @@ module.exports = async function (fastify, opts) {
         return reply.code(403).send({ error: 'Forbidden' });
       }
 
-      // Cleanup MinIO HLS bucket
-      const objectsStream = minioClient.listObjectsV2(HLS_BUCKET, `${id}/`, true);
-      const objectsToRemove = [];
-      for await (const obj of objectsStream) {
-        objectsToRemove.push(obj.name);
-      }
-      if (objectsToRemove.length > 0) {
-        await minioClient.removeObjects(HLS_BUCKET, objectsToRemove);
+      // 1. Cancel any active/waiting transcode job
+      const transcodeJob = await transcodeQueue.getJob(id);
+      if (transcodeJob) {
+        await transcodeJob.remove();
       }
 
-      // Remove Thumbnail
-      await minioClient.removeObject(THUMB_BUCKET, `${id}.jpg`).catch(() => { });
+      // 2. Offload cleanup to background worker
+      await cleanupQueue.add('cleanup', { video_id: id });
 
-      // Delete from DB
+      // 3. Delete from DB immediately (Optimistic response depends on this being fast)
       await pool.query('DELETE FROM videos WHERE id = $1', [id]);
 
-      return reply.send({ message: 'Video deleted successfully' });
+      return reply.send({ message: 'Video deletion started' });
     } catch (err) {
       fastify.log.error(err);
       return reply.code(500).send({ error: 'Internal server error' });

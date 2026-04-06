@@ -8,10 +8,7 @@ const { minioClient, RAW_BUCKET, HLS_BUCKET, THUMB_BUCKET, uploadDir, deletePref
 const { transcodeToHLS, extractThumbnail, getMetadata } = require('../services/ffmpeg');
 const { redis } = require('../services/redis');
 
-const connection = {
-  host: process.env.REDIS_URL ? new URL(process.env.REDIS_URL).hostname : 'localhost',
-  port: process.env.REDIS_URL ? new URL(process.env.REDIS_URL).port : 6379,
-};
+const { connection } = require('../services/queues');
 
 const THROTTLE_MS = 5000;
 
@@ -34,7 +31,10 @@ const processVideo = async (job) => {
 
     // 3. Extract Metadata & Thumb
     const metadata = await getMetadata(rawFilePath);
-    await pool.query("UPDATE videos SET duration_seconds = $1 WHERE id = $2", [Math.round(metadata.duration), video_id]);
+    await pool.query(
+      "UPDATE videos SET duration_seconds = $1, quality = $2 WHERE id = $3", 
+      [Math.round(metadata.duration), metadata.quality, video_id]
+    );
     
     await extractThumbnail(rawFilePath, thumbPath);
     await minioClient.fPutObject(THUMB_BUCKET, `${video_id}.jpg`, thumbPath, { 'Content-Type': 'image/jpeg' });
@@ -50,7 +50,8 @@ const processVideo = async (job) => {
 
         const now = Date.now();
         if (now - lastDbWrite >= THROTTLE_MS) {
-          await pool.query("UPDATE videos SET progress = $1 WHERE id = $2", [percent, video_id]);
+          const safePercent = isNaN(percent) ? 0 : percent;
+          await pool.query("UPDATE videos SET progress = $1 WHERE id = $2", [safePercent, video_id]);
           lastDbWrite = now;
         }
       },
@@ -146,9 +147,15 @@ const closeGracefully = async (signal) => {
   process.exit(0);
 };
 
-process.on('SIGINT', closeGracefully);
-process.on('SIGTERM', closeGracefully);
-
+// Only register signal handlers if run directly
 if (require.main === module) {
+  process.on('SIGINT', () => closeGracefully('SIGINT'));
+  process.on('SIGTERM', () => closeGracefully('SIGTERM'));
   start();
 }
+
+module.exports = { 
+  start, 
+  worker, 
+  closeGracefully 
+};

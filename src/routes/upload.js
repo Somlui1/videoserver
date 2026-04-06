@@ -1,16 +1,9 @@
 const { v4: uuidv4 } = require('uuid');
-const { Queue } = require('bullmq');
 const path = require('path');
 const pool = require('../db/pool');
 const { minioClient, RAW_BUCKET } = require('../services/minio');
 const { verifyJWT, requireRole } = require('../middleware/auth');
-
-const transcodeQueue = new Queue('transcode', {
-  connection: {
-    host: process.env.REDIS_URL ? new URL(process.env.REDIS_URL).hostname : 'localhost',
-    port: process.env.REDIS_URL ? new URL(process.env.REDIS_URL).port : 6379,
-  }
-});
+const { transcodeQueue } = require('../services/queues');
 
 const ALLOWED_EXTS = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
 
@@ -48,8 +41,8 @@ module.exports = async function (fastify, opts) {
       `;
       await pool.query(insertQuery, [video_id, title, description, course_id, access_level, uploader_id]);
 
-      // Push to BullMQ
-      await transcodeQueue.add('processVideo', { video_id, objectName, ext });
+      // Push to BullMQ with jobId for later cancellation support
+      await transcodeQueue.add('processVideo', { video_id, objectName, ext }, { jobId: video_id });
 
       return reply.code(201).send({ video_id, status: 'pending' });
     } catch (err) {

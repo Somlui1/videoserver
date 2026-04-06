@@ -1,6 +1,7 @@
 const Minio = require('minio');
 const fs = require('fs/promises');
 const path = require('path');
+const { redis } = require('./redis');
 
 const minioClient = new Minio.Client({
   endPoint: process.env.MINIO_ENDPOINT || 'localhost',
@@ -39,15 +40,22 @@ const uploadDir = async (bucket, prefix, dirPath) => {
 
 /**
  * Delete all objects with a given prefix in a bucket.
+ * Handles large sets by batching removals in chunks of 1000.
  */
 const deletePrefix = async (bucket, prefix) => {
   const objectsStream = minioClient.listObjectsV2(bucket, prefix, true);
-  const objectsToRemove = [];
+  let batch = [];
+  
   for await (const obj of objectsStream) {
-    objectsToRemove.push(obj.name);
+    batch.push(obj.name);
+    if (batch.length >= 1000) {
+      await minioClient.removeObjects(bucket, batch);
+      batch = [];
+    }
   }
-  if (objectsToRemove.length > 0) {
-    await minioClient.removeObjects(bucket, objectsToRemove);
+  
+  if (batch.length > 0) {
+    await minioClient.removeObjects(bucket, batch);
   }
 };
 
@@ -87,6 +95,47 @@ const initBuckets = async () => {
   }
 };
 
+/**
+ * Calculate total storage usage across all buckets with caching.
+ */
+const getTotalStorageUsage = async () => {
+  const cacheKey = 'minio:storage_usage';
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch (err) {
+    console.warn('Redis cache hit failed for storage usage:', err.message);
+  }
+
+  let totalBytes = 0;
+  try {
+    const buckets = [RAW_BUCKET, HLS_BUCKET, THUMB_BUCKET];
+    for (const bucket of buckets) {
+      const stream = minioClient.listObjectsV2(bucket, '', true);
+      for await (const obj of stream) {
+        totalBytes += obj.size;
+      }
+    }
+  } catch (err) {
+    console.error('Error listing MinIO objects for storage usage:', err);
+    throw err;
+  }
+
+  const result = {
+    bytes: totalBytes,
+    formatted: (totalBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB',
+    timestamp: new Date().toISOString()
+  };
+
+  try {
+    await redis.set(cacheKey, JSON.stringify(result), 'EX', 300); // 5 min TTL
+  } catch (err) {
+    console.warn('Failed to cache storage usage in Redis:', err.message);
+  }
+  
+  return result;
+};
+
 initBuckets();
 
 module.exports = {
@@ -95,5 +144,6 @@ module.exports = {
   HLS_BUCKET,
   THUMB_BUCKET,
   uploadDir,
-  deletePrefix
+  deletePrefix,
+  getTotalStorageUsage
 };

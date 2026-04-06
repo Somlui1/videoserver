@@ -34,15 +34,29 @@ export const VideoService = {
       }
       
       localStorage.setItem('aapico_token', data.token);
-      localStorage.setItem('aapico_user', JSON.stringify({
-        email: email,
-        role: data.role || 'viewer'
-      }));
+      localStorage.setItem('aapico_user', JSON.stringify(data.user));
 
       return data;
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : 'Authentication failed');
     }
+  },
+
+  /**
+   * Update current user profile
+   */
+  async updateProfile(data: { name?: string; email?: string }) {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/api/auth/profile`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to update profile');
+    }
+    return result;
   },
 
   /**
@@ -176,8 +190,8 @@ export const VideoService = {
       activeWorkers: data.active || 0,
       completedJobs: data.completed || 0,
       failedJobs: data.failed || 0,
-      storageUsed: "N/A",
-      storagePercentage: 0
+      storageUsed: data.storageUsed || "0 GB",
+      storagePercentage: data.storagePercentage || 0
     };
   },
 

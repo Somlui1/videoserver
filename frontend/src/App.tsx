@@ -56,7 +56,9 @@ interface Video {
   status: string;
   quality?: string;
   duration?: string;
+  duration_seconds?: number;
   size?: string;
+  file_size_bytes?: number;
   progress?: number;
   createdAt?: string;
   views?: number;
@@ -780,11 +782,17 @@ const LibraryPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void, s
     if (!window.confirm(`Are you sure you want to delete "${title}"?`)) return;
 
     addLog(`Attempting to delete video: ${id}`);
+    
+    // Optimistic Update: Remove from UI immediately
+    const previousVideos = [...videos];
+    setVideos(prev => prev.filter(v => v.id !== id));
+    
     try {
       await VideoService.deleteVideo(id);
-      addLog(`Video ${id} deleted successfully.`);
-      setVideos(prev => prev.filter(v => v.id !== id));
+      addLog(`Video ${id} deletion triggered successfully.`);
     } catch (err: any) {
+      // Rollback on failure
+      setVideos(previousVideos);
       addLog(`Delete failed: ${err.message}`);
       alert(`Delete failed: ${err.message}`);
     }
@@ -892,6 +900,156 @@ const LibraryPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void, s
   );
 };
 
+interface AdminJobRowProps {
+  video: Video;
+  onDelete: (id: string, title: string) => Promise<void>;
+  [key: string]: any; // Allow for 'key' or other React-injected props
+}
+
+const AdminJobRow = ({ video, onDelete }: AdminJobRowProps) => {
+  const { progress, status } = useVideoProgress(video.id, video.status, video.progress || 0);
+  
+  return (
+    <tr key={video.id} className="hover:bg-surface-container-lowest/50 transition-colors group">
+      <td className="px-8 py-6 text-sm font-mono text-primary font-bold">#{video.id.substring(0, 8).toUpperCase()}</td>
+      <td className="px-8 py-6">
+        <div className="flex flex-col">
+          <span className="font-bold text-primary-container text-[16px] font-bai">{video.title}</span>
+          <span className="text-outline text-[10px] uppercase tracking-widest mt-1">
+            {video.file_size_bytes ? `${(video.file_size_bytes / (1024 * 1024 * 1024)).toFixed(2)} GB` : '0 GB'} / {video.quality || 'N/A'} Source
+          </span>
+        </div>
+      </td>
+      <td className="px-8 py-6">
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            "w-2 h-2 rounded-full",
+            status.toLowerCase() === 'ready' ? "bg-secondary shadow-[0_0_8px_rgba(0,110,33,0.6)]" : 
+            status.toLowerCase() === 'error' ? "bg-error" : "bg-primary-container animate-pulse"
+          )}></div>
+          <span className={cn(
+            "text-[11px] font-black uppercase tracking-widest",
+            status.toLowerCase() === 'ready' ? "text-secondary" : 
+            status.toLowerCase() === 'error' ? "text-error" : "text-primary-container"
+          )}>
+            {status} {status === 'transcoding' && `(${progress}%)`}
+          </span>
+        </div>
+      </td>
+      <td className="px-8 py-6">
+        <span className="px-3 py-1 bg-surface-container-high text-on-surface-variant text-[10px] font-bold uppercase tracking-widest sharp-edge border border-outline-variant/20">
+            {video.quality || (status === 'ready' ? 'Unknown' : '...')}
+        </span>
+      </td>
+      <td className="px-8 py-6 text-right">
+        <div className="flex items-center justify-end gap-4">
+          <button
+            onClick={() => onDelete(video.id, video.title)}
+            className="text-error hover:bg-error-container/20 p-2 transition-colors sharp-edge"
+          >
+            <span className="material-symbols-outlined">delete</span>
+          </button>
+          <button className="text-outline hover:text-primary transition-colors">
+            <span className="material-symbols-outlined">more_vert</span>
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+};
+
+const SettingsPage = ({ addLog }: { addLog: (msg: string) => void }) => {
+  const getUser = () => {
+    try {
+      const stored = localStorage.getItem('aapico_user');
+      if (!stored || stored === 'undefined') return {};
+      return JSON.parse(stored);
+    } catch { return {}; }
+  };
+  const user = getUser();
+  const [name, setName] = useState(user.name || 'System Administrator');
+  const [email, setEmail] = useState(user.email || 'admin@company.com');
+  const [updating, setUpdating] = useState(false);
+
+  const handleSave = async () => {
+    if (!name || !email) return alert('Name and Email are required.');
+    setUpdating(true);
+    try {
+      const updatedUser = await VideoService.updateProfile({ name, email });
+      localStorage.setItem('aapico_user', JSON.stringify({
+          ...user,
+          name: updatedUser.name,
+          email: updatedUser.email
+      }));
+      addLog(`Profile updated: ${updatedUser.name} (${updatedUser.email})`);
+      alert('Profile updated successfully.');
+    } catch (err: any) {
+      addLog(`Failed to update profile: ${err.message}`);
+      alert(`Error: ${err.message}`);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  return (
+    <div className="space-y-12">
+      <div>
+        <h1 className="text-[48px] font-black text-primary leading-none tracking-tight font-bai uppercase">Account Settings</h1>
+        <p className="text-[16px] text-on-surface-variant mt-2 max-w-2xl font-bai">Manage your administrative profile and security credentials.</p>
+      </div>
+
+      <div className="bg-surface-container-lowest p-8 border border-outline-variant/30 space-y-8">
+        <div className="max-w-2xl space-y-8">
+          <div className="flex items-center gap-8 mb-12">
+            <div className="w-32 h-32 bg-primary-container p-1 sharp-edge shadow-xl">
+              <img src="https://picsum.photos/seed/admin/300/300" alt="Admin" className="w-full h-full object-cover grayscale" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-primary uppercase tracking-widest mb-1">Profile Photo</h3>
+              <p className="text-xs text-outline mb-4">Click to upload a new personnel photo (JPG/PNG, max 2MB).</p>
+              <button className="text-[10px] font-black text-secondary uppercase tracking-widest border border-secondary/30 px-4 py-2 hover:bg-secondary/10 transition-all sharp-edge">Update Identity Image</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-2">
+              <label className="block text-[10px] font-black text-outline uppercase tracking-widest">Full Name</label>
+              <input 
+                type="text" 
+                value={name} 
+                onChange={e => setName(e.target.value)}
+                className="w-full bg-surface-container-low border border-outline-variant/30 p-4 font-bold text-primary sharp-edge focus:border-primary outline-none transition-all"
+                placeholder="Enter full name"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-[10px] font-black text-outline uppercase tracking-widest">Email Address</label>
+              <input 
+                type="email" 
+                value={email} 
+                onChange={e => setEmail(e.target.value)}
+                className="w-full bg-surface-container-low border border-outline-variant/30 p-4 font-bold text-primary sharp-edge focus:border-primary outline-none transition-all"
+                placeholder="Enter email address"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-8 border-t border-outline-variant/30">
+          <button 
+            onClick={handleSave}
+            disabled={updating}
+            className="bg-primary text-white px-12 py-4 text-sm font-bold uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all sharp-edge flex items-center gap-2"
+          >
+            {updating && <span className="material-symbols-outlined animate-spin text-sm">sync</span>}
+            Save Profile Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AdminJobsPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void, searchQuery: string }) => {
   const [videos, setVideos] = useState<Video[]>([]);
   const [stats, setStats] = useState<any>({
@@ -920,16 +1078,21 @@ const AdminJobsPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void,
     addLog("Fetching admin dashboard data...");
     setLoading(true);
     try {
-      const [videosData, statsData] = await Promise.all([
-        VideoService.getAdminVideos(),
-        VideoService.getStats()
-      ]);
-      const filteredVideos = searchQuery
-        ? videosData.filter((v: any) => v.title.toLowerCase().includes(searchQuery.toLowerCase()) || v.id.toLowerCase().includes(searchQuery.toLowerCase()))
-        : videosData;
-      setVideos(filteredVideos);
-      setStats(statsData);
-      addLog(`Loaded ${videosData.length} jobs and system stats.`);
+    const [videosData, statsData] = await Promise.all([
+      VideoService.getAdminVideos(),
+      VideoService.getStats()
+    ]);
+    const filteredVideos = searchQuery
+      ? videosData.filter((v: any) => v.title.toLowerCase().includes(searchQuery.toLowerCase()) || v.id.toLowerCase().includes(searchQuery.toLowerCase()))
+      : videosData;
+    setVideos(filteredVideos);
+    setStats({
+      jobsWaiting: statsData.jobsWaiting,
+      activeWorkers: statsData.activeWorkers,
+      storageUsed: statsData.storageUsed,
+      storagePercentage: statsData.storagePercentage
+    });
+    addLog(`Loaded ${videosData.length} jobs and system stats.`);
     } catch (err: any) {
       console.error(err);
       addLog(`Error fetching admin data: ${err.message}`);
@@ -1014,45 +1177,7 @@ const AdminJobsPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void,
             </thead>
             <tbody className="divide-y divide-outline-variant/10">
               {videos.map((video) => (
-                <tr key={video.id} className="hover:bg-surface-container-lowest/50 transition-colors group">
-                  <td className="px-8 py-6 text-sm font-mono text-primary font-bold">#{video.id.substring(0, 8).toUpperCase()}</td>
-                  <td className="px-8 py-6">
-                    <div className="flex flex-col">
-                      <span className="font-bold text-primary-container text-[16px] font-bai">{video.title}</span>
-                      <span className="text-outline text-[10px] uppercase tracking-widest mt-1">{video.size || '0 GB'} / {video.quality || 'N/A'} Source</span>
-                    </div>
-                  </td>
-                  <td className="px-8 py-6">
-                    <div className="flex items-center gap-3">
-                      <div className={cn(
-                        "w-2 h-2 rounded-full",
-                        video.status.toLowerCase() === 'ready' ? "bg-secondary shadow-[0_0_8px_rgba(0,110,33,0.6)]" : "bg-primary-container animate-pulse"
-                      )}></div>
-                      <span className={cn(
-                        "text-[11px] font-black uppercase tracking-widest",
-                        video.status.toLowerCase() === 'ready' ? "text-secondary" : "text-primary-container"
-                      )}>
-                        {video.status} {video.status === 'transcoding' && `(${video.progress}%)`}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-8 py-6">
-                    <span className="px-3 py-1 bg-surface-container-high text-on-surface-variant text-[10px] font-bold uppercase tracking-widest sharp-edge border border-outline-variant/20">{video.quality || '1080p'} / 720p / 360p</span>
-                  </td>
-                  <td className="px-8 py-6 text-right">
-                    <div className="flex items-center justify-end gap-4">
-                      <button
-                        onClick={() => handleDeleteVideo(video.id, video.title)}
-                        className="text-error hover:bg-error-container/20 p-2 transition-colors sharp-edge"
-                      >
-                        <span className="material-symbols-outlined">delete</span>
-                      </button>
-                      <button className="text-outline hover:text-primary transition-colors">
-                        <span className="material-symbols-outlined">more_vert</span>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                <AdminJobRow key={video.id} video={video} onDelete={handleDeleteVideo} />
               ))}
               {videos.length === 0 && (
                 <tr>
@@ -1319,52 +1444,7 @@ function AppRoutes({ logs, addLog }: { logs: LogEntry[], addLog: (msg: string) =
         <Route path="/upload" element={<UploadPage addLog={addLog} />} />
         <Route path="/library" element={<LibraryPage addLog={addLog} searchQuery={searchQuery} />} />
         <Route path="/admin" element={<AdminJobsPage addLog={addLog} searchQuery={searchQuery} />} />
-        <Route path="/settings" element={
-          <div className="space-y-12">
-            <div>
-              <h1 className="text-[48px] font-black text-primary leading-none tracking-tight font-bai uppercase">e-Learning Core Settings</h1>
-              <p className="text-[16px] text-on-surface-variant mt-2 max-w-2xl font-bai">Configure e-Learning video quality parameters, storage endpoints, and CDN delivery nodes.</p>
-            </div>
-
-            <div className="bg-surface-container-lowest p-8 border border-outline-variant/30 space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                <div className="space-y-6">
-                  <h3 className="text-sm font-black text-primary uppercase tracking-widest border-b border-outline-variant/30 pb-2">API Configuration</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-[10px] font-black text-outline uppercase tracking-widest mb-2">Backend Endpoint</label>
-                      <div className="bg-surface-container-low p-4 border border-outline-variant/20 font-mono text-xs text-primary">{API_CONFIG.BASE_URL}</div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-outline uppercase tracking-widest mb-2">Video CDN Host</label>
-                      <div className="bg-surface-container-low p-4 border border-outline-variant/20 font-mono text-xs text-primary">{API_CONFIG.VIDEO_SERVER_URL}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  <h3 className="text-sm font-black text-primary uppercase tracking-widest border-b border-outline-variant/30 pb-2">User Profile</h3>
-                  <div className="flex items-center gap-6">
-                    <div className="w-20 h-20 bg-primary-container p-1 sharp-edge shadow-lg">
-                      <img src="https://picsum.photos/seed/admin/200/200" alt="Admin" className="w-full h-full object-cover grayscale" />
-                    </div>
-                    <div>
-                      <p className="text-lg font-black text-primary uppercase tracking-tighter">System Administrator</p>
-                      <p className="text-sm text-outline font-bold">admin@company.com</p>
-                      <button className="mt-2 text-[10px] font-black text-secondary uppercase tracking-widest hover:underline px-0 transition-all">Change Personnel Photo</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-8 border-t border-outline-variant/30">
-                <button className="bg-primary text-white px-8 py-4 text-sm font-bold uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all sharp-edge">
-                  Save All Configuration
-                </button>
-              </div>
-            </div>
-          </div>
-        } />
+        <Route path="/settings" element={<SettingsPage addLog={addLog} />} />
         <Route path="/" element={<Navigate to="/upload" />} />
       </Routes>
     </Layout>

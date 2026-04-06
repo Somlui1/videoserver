@@ -1,5 +1,15 @@
 'use strict';
 
+const getQualityLabel = (height) => {
+  if (!height) return 'Unknown';
+  if (height >= 2160) return '4K';
+  if (height >= 1440) return '2K';
+  if (height >= 1080) return '1080p';
+  if (height >= 720) return '720p';
+  if (height >= 480) return '480p';
+  return '360p';
+};
+
 const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const path = require('path');
@@ -15,10 +25,11 @@ const getMetadata = (inputPath) =>
       const videoStream = metadata?.streams?.find(s => s.codec_type === 'video');
       if (!format || !videoStream) return reject(new Error('Cannot read video metadata'));
       resolve({
-        duration: parseFloat(format.duration),
+        duration: parseFloat(format.duration) || 0,
         width: videoStream.width,
         height: videoStream.height,
         bitrate: parseInt(format.bit_rate) || 2000000, // Fallback to 2Mbps
+        quality: getQualityLabel(videoStream.height)
       });
     });
   });
@@ -117,9 +128,15 @@ const transcodeToHLS = async (inputPath, outputBaseDir, opts = {}) => {
     cmd.on('progress', (progress) => {
       const elapsed = timecodeToSeconds(progress.timemark);
       // Clamp at 99% during progress as requested. 100% is only for 'end'.
-      const percent = duration > 0
-        ? Math.min(99, Math.round((elapsed / duration) * 100))
-        : Math.min(99, progress.percent ?? 0);
+      let percent = 0;
+      if (duration > 0) {
+        percent = Math.min(99, Math.round((elapsed / duration) * 100));
+      } else {
+        percent = Math.min(99, Math.round(progress.percent || 0));
+      }
+
+      // Final safety check for NaN
+      if (isNaN(percent)) percent = 0;
 
       if (onProgress) {
         onProgress({

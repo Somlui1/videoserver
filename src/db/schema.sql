@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
+    name VARCHAR(255),
     role role_enum NOT NULL DEFAULT 'viewer',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS videos (
     course_id VARCHAR(100),
     access_level access_level_enum DEFAULT 'private',
     status status_enum DEFAULT 'pending',
+    quality VARCHAR(20),
     uploader_id UUID REFERENCES users(id),
     duration_seconds INTEGER,
     file_size_bytes BIGINT,
@@ -42,12 +44,12 @@ CREATE TABLE IF NOT EXISTS videos (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Seed default admin user (password: 'password')
--- Seed default admin user with a STATIC UUID to prevent FK issues on local resets
-INSERT INTO users (id, email, password_hash, role)
+-- Seed default admin user (password: 'admin1234')
+INSERT INTO users (id, email, password_hash, name, role)
 VALUES (
     '00000000-0000-0000-0000-000000000001',
     'admin@company.com',
-    '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
+    '$2a$10$6zdx3D8IgSyqIPdQV17AjuE2DJvE/gd6xySt0XxGE4dMIoiDsAM8q',
+    'System Administrator',
     'admin'
 ) ON CONFLICT (email) DO NOTHING;
