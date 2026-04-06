@@ -758,6 +758,8 @@ const LibraryPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void, s
   const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
   const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [limit, setLimit] = useState(12); // Items per page
   const navigate = useNavigate();
 
   const handleEditVideo = (id: string, currentTitle: string) => {
@@ -799,12 +801,16 @@ const LibraryPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void, s
   };
 
   const loadVideos = async () => {
-    addLog('Fetching video library...');
+    addLog(`Fetching video library page ${currentPage} (Limit: ${limit})...`);
     setLoading(true);
     try {
-      const data = await VideoService.getVideos({ search: searchQuery, limit: 100 });
+      const data = await VideoService.getVideos({ 
+        search: searchQuery, 
+        page: currentPage, 
+        limit: limit 
+      });
       setVideos(data);
-      addLog(`Loaded ${data.length} videos${searchQuery ? ` matching "${searchQuery}"` : ''}.`);
+      addLog(`Loaded ${data.length} videos.`);
     } catch (err: any) {
       addLog(`Error loading library: ${err.message}`);
     } finally {
@@ -813,8 +819,12 @@ const LibraryPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void, s
   };
 
   useEffect(() => {
+    setCurrentPage(1); // Reset to page 1 on search or limit change
+  }, [searchQuery, limit]);
+
+  useEffect(() => {
     loadVideos();
-  }, [searchQuery]);
+  }, [searchQuery, currentPage, limit]);
 
   return (
     <div className="space-y-12">
@@ -841,6 +851,19 @@ const LibraryPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void, s
           <button className="px-4 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface-container-high transition-colors sharp-edge">Finished</button>
           <button className="px-4 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface-container-high transition-colors sharp-edge">Processing</button>
           <button className="px-4 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface-container-high transition-colors sharp-edge">Failed</button>
+        </div>
+        <div className="flex items-center gap-2 px-4 border-r border-outline-variant/20">
+          <span className="text-xs font-bold uppercase tracking-wider text-outline">Items per page:</span>
+          <select 
+            value={limit} 
+            onChange={(e) => setLimit(Number(e.target.value))}
+            className="bg-transparent text-xs font-bold text-primary outline-none cursor-pointer"
+          >
+            <option value="12">12</option>
+            <option value="24">24</option>
+            <option value="48">48</option>
+            <option value="100">100</option>
+          </select>
         </div>
         <div className="ml-auto px-6 py-2 flex items-center gap-4">
           <span className="text-xs text-outline italic">Showing {videos.length} videos</span>
@@ -880,12 +903,24 @@ const LibraryPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void, s
 
       <div className="mt-20 pt-8 border-t border-outline-variant/30 flex items-center justify-between">
         <div className="text-[16px] text-on-surface-variant font-bai">
-          Showing <span className="font-bold text-primary">1-{videos.length}</span> of {videos.length} results
+          Showing <span className="font-bold text-primary">{(currentPage - 1) * limit + 1}-{Math.min(currentPage * limit, (currentPage - 1) * limit + videos.length)}</span> of results
         </div>
         <div className="flex items-center gap-1">
-          <button className="w-10 h-10 flex items-center justify-center border border-outline-variant/30 text-outline hover:bg-surface-container transition-colors sharp-edge"><span className="material-symbols-outlined">chevron_left</span></button>
-          <button className="w-10 h-10 flex items-center justify-center bg-primary-container text-white font-bold sharp-edge">1</button>
-          <button className="w-10 h-10 flex items-center justify-center border border-outline-variant/30 text-outline hover:bg-surface-container transition-colors sharp-edge"><span className="material-symbols-outlined">chevron_right</span></button>
+          <button 
+            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            disabled={currentPage === 1 || loading}
+            className="w-10 h-10 flex items-center justify-center border border-outline-variant/30 text-outline hover:bg-surface-container transition-colors sharp-edge disabled:opacity-30"
+          >
+            <span className="material-symbols-outlined">chevron_left</span>
+          </button>
+          <button className="w-10 h-10 flex items-center justify-center bg-primary-container text-white font-bold sharp-edge">{currentPage}</button>
+          <button 
+            onClick={() => setCurrentPage(prev => prev + 1)}
+            disabled={videos.length < limit || loading}
+            className="w-10 h-10 flex items-center justify-center border border-outline-variant/30 text-outline hover:bg-surface-container transition-colors sharp-edge disabled:opacity-30"
+          >
+            <span className="material-symbols-outlined">chevron_right</span>
+          </button>
         </div>
       </div>
 
