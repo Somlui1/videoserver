@@ -21,17 +21,20 @@ module.exports = async function (fastify, opts) {
       const completed = await transcodeQueue.getCompletedCount();
       const failed = await transcodeQueue.getFailedCount();
       
-      const storage = await getTotalStorageUsage();
+      const { rows } = await pool.query('SELECT SUM(file_size_bytes) as total FROM videos');
+      const totalBytes = parseInt(rows[0]?.total || '0') * 1.5; // Estimate HLS overhead
       const capacityGB = parseInt(process.env.STORAGE_CAPACITY_GB || '100');
-      const usedGB = storage.bytes / (1024 * 1024 * 1024);
+      const usedGB = totalBytes / (1024 * 1024 * 1024);
       const percentage = Math.min(100, Math.round((usedGB / capacityGB) * 100));
+
+      const storageFormatted = usedGB.toFixed(2) + ' GB';
 
       return reply.send({
         waiting, 
         active, 
         completed, 
         failed,
-        storageUsed: storage.formatted,
+        storageUsed: storageFormatted,
         storagePercentage: percentage
       });
     } catch (err) {
