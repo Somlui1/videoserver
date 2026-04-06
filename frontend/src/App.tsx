@@ -366,7 +366,7 @@ const VideoPlayer = ({ videoId, addLog, onClose, inline = false }: { videoId: st
 
 const LoginPage = ({ addLog }: { addLog: (msg: string) => void }) => {
   const [email, setEmail] = useState('admin@company.com');
-  const [password, setPassword] = useState('password');
+  const [password, setPassword] = useState('admin1234');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const navigate = useNavigate();
@@ -782,11 +782,11 @@ const LibraryPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void, s
     if (!window.confirm(`Are you sure you want to delete "${title}"?`)) return;
 
     addLog(`Attempting to delete video: ${id}`);
-    
+
     // Optimistic Update: Remove from UI immediately
     const previousVideos = [...videos];
     setVideos(prev => prev.filter(v => v.id !== id));
-    
+
     try {
       await VideoService.deleteVideo(id);
       addLog(`Video ${id} deletion triggered successfully.`);
@@ -802,7 +802,7 @@ const LibraryPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void, s
     addLog('Fetching video library...');
     setLoading(true);
     try {
-      const data = await VideoService.getVideos({ search: searchQuery });
+      const data = await VideoService.getVideos({ search: searchQuery, limit: 100 });
       setVideos(data);
       addLog(`Loaded ${data.length} videos${searchQuery ? ` matching "${searchQuery}"` : ''}.`);
     } catch (err: any) {
@@ -908,7 +908,7 @@ interface AdminJobRowProps {
 
 const AdminJobRow = ({ video, onDelete }: AdminJobRowProps) => {
   const { progress, status } = useVideoProgress(video.id, video.status, video.progress || 0);
-  
+
   return (
     <tr key={video.id} className="hover:bg-surface-container-lowest/50 transition-colors group">
       <td className="px-8 py-6 text-sm font-mono text-primary font-bold">#{video.id.substring(0, 8).toUpperCase()}</td>
@@ -924,13 +924,13 @@ const AdminJobRow = ({ video, onDelete }: AdminJobRowProps) => {
         <div className="flex items-center gap-3">
           <div className={cn(
             "w-2 h-2 rounded-full",
-            status.toLowerCase() === 'ready' ? "bg-secondary shadow-[0_0_8px_rgba(0,110,33,0.6)]" : 
-            status.toLowerCase() === 'error' ? "bg-error" : "bg-primary-container animate-pulse"
+            status.toLowerCase() === 'ready' ? "bg-secondary shadow-[0_0_8px_rgba(0,110,33,0.6)]" :
+              status.toLowerCase() === 'error' ? "bg-error" : "bg-primary-container animate-pulse"
           )}></div>
           <span className={cn(
             "text-[11px] font-black uppercase tracking-widest",
-            status.toLowerCase() === 'ready' ? "text-secondary" : 
-            status.toLowerCase() === 'error' ? "text-error" : "text-primary-container"
+            status.toLowerCase() === 'ready' ? "text-secondary" :
+              status.toLowerCase() === 'error' ? "text-error" : "text-primary-container"
           )}>
             {status} {status === 'transcoding' && `(${progress}%)`}
           </span>
@@ -938,7 +938,7 @@ const AdminJobRow = ({ video, onDelete }: AdminJobRowProps) => {
       </td>
       <td className="px-8 py-6">
         <span className="px-3 py-1 bg-surface-container-high text-on-surface-variant text-[10px] font-bold uppercase tracking-widest sharp-edge border border-outline-variant/20">
-            {video.quality || (status === 'ready' ? 'Unknown' : '...')}
+          {video.quality || (status === 'ready' ? 'Unknown' : '...')}
         </span>
       </td>
       <td className="px-8 py-6 text-right">
@@ -977,9 +977,9 @@ const SettingsPage = ({ addLog }: { addLog: (msg: string) => void }) => {
     try {
       const updatedUser = await VideoService.updateProfile({ name, email });
       localStorage.setItem('aapico_user', JSON.stringify({
-          ...user,
-          name: updatedUser.name,
-          email: updatedUser.email
+        ...user,
+        name: updatedUser.name,
+        email: updatedUser.email
       }));
       addLog(`Profile updated: ${updatedUser.name} (${updatedUser.email})`);
       alert('Profile updated successfully.');
@@ -1002,7 +1002,7 @@ const SettingsPage = ({ addLog }: { addLog: (msg: string) => void }) => {
         <div className="max-w-2xl space-y-8">
           <div className="flex items-center gap-8 mb-12">
             <div className="w-32 h-32 bg-primary-container p-1 sharp-edge shadow-xl">
-              <img src="https://picsum.photos/seed/admin/300/300" alt="Admin" className="w-full h-full object-cover grayscale" />
+              <img src="https://www.flaticon.com/free-icon/administrator_560199" alt="Admin" className="w-full h-full object-cover grayscale" />
             </div>
             <div>
               <h3 className="text-sm font-black text-primary uppercase tracking-widest mb-1">Profile Photo</h3>
@@ -1014,9 +1014,9 @@ const SettingsPage = ({ addLog }: { addLog: (msg: string) => void }) => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-2">
               <label className="block text-[10px] font-black text-outline uppercase tracking-widest">Full Name</label>
-              <input 
-                type="text" 
-                value={name} 
+              <input
+                type="text"
+                value={name}
                 onChange={e => setName(e.target.value)}
                 className="w-full bg-surface-container-low border border-outline-variant/30 p-4 font-bold text-primary sharp-edge focus:border-primary outline-none transition-all"
                 placeholder="Enter full name"
@@ -1024,9 +1024,9 @@ const SettingsPage = ({ addLog }: { addLog: (msg: string) => void }) => {
             </div>
             <div className="space-y-2">
               <label className="block text-[10px] font-black text-outline uppercase tracking-widest">Email Address</label>
-              <input 
-                type="email" 
-                value={email} 
+              <input
+                type="email"
+                value={email}
                 onChange={e => setEmail(e.target.value)}
                 className="w-full bg-surface-container-low border border-outline-variant/30 p-4 font-bold text-primary sharp-edge focus:border-primary outline-none transition-all"
                 placeholder="Enter email address"
@@ -1036,7 +1036,7 @@ const SettingsPage = ({ addLog }: { addLog: (msg: string) => void }) => {
         </div>
 
         <div className="pt-8 border-t border-outline-variant/30">
-          <button 
+          <button
             onClick={handleSave}
             disabled={updating}
             className="bg-primary text-white px-12 py-4 text-sm font-bold uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all sharp-edge flex items-center gap-2"
@@ -1078,21 +1078,21 @@ const AdminJobsPage = ({ addLog, searchQuery }: { addLog: (msg: string) => void,
     addLog("Fetching admin dashboard data...");
     setLoading(true);
     try {
-    const [videosData, statsData] = await Promise.all([
-      VideoService.getAdminVideos(),
-      VideoService.getStats()
-    ]);
-    const filteredVideos = searchQuery
-      ? videosData.filter((v: any) => v.title.toLowerCase().includes(searchQuery.toLowerCase()) || v.id.toLowerCase().includes(searchQuery.toLowerCase()))
-      : videosData;
-    setVideos(filteredVideos);
-    setStats({
-      jobsWaiting: statsData.jobsWaiting,
-      activeWorkers: statsData.activeWorkers,
-      storageUsed: statsData.storageUsed,
-      storagePercentage: statsData.storagePercentage
-    });
-    addLog(`Loaded ${videosData.length} jobs and system stats.`);
+      const [videosData, statsData] = await Promise.all([
+        VideoService.getAdminVideos(),
+        VideoService.getStats()
+      ]);
+      const filteredVideos = searchQuery
+        ? videosData.filter((v: any) => v.title.toLowerCase().includes(searchQuery.toLowerCase()) || v.id.toLowerCase().includes(searchQuery.toLowerCase()))
+        : videosData;
+      setVideos(filteredVideos);
+      setStats({
+        jobsWaiting: statsData.jobsWaiting,
+        activeWorkers: statsData.activeWorkers,
+        storageUsed: statsData.storageUsed,
+        storagePercentage: statsData.storagePercentage
+      });
+      addLog(`Loaded ${videosData.length} jobs and system stats.`);
     } catch (err: any) {
       console.error(err);
       addLog(`Error fetching admin data: ${err.message}`);
